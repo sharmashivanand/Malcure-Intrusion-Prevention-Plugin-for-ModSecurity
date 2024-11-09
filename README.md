@@ -106,7 +106,7 @@ If you encounter any issues, false positives, or have suggestions for improvemen
 
 ## License
 
-This plugin is licensed under the [MIT License](https://opensource.org/licenses/MIT). See the `LICENSE` file for more details.
+This plugin is licensed under the [Malcure License](https://malcure.com/about-malcure/malcure-license-template/). See the `LICENSE` file for more details.
 
 ---
 
