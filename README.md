@@ -1,6 +1,6 @@
 # Malcure's Intrusion Prevention Plugin for ModSecurity
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Malcure](https://img.shields.io/badge/License-Malcure-264059)](https://malcure.com/about-malcure/malcure-license-template/)
 
 **Proactively block malicious IPs to prevent brute-force attacks and exploitation attempts by monitoring error responses in ModSecurity without relying on external tools like Fail2Ban.**
 
