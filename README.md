@@ -27,7 +27,7 @@ Malcure's Intrusion Prevention Plugin enhances your web server's security by int
   - **Nginx** (Recommended).
   - **Apache HTTP Server** .
 - **Support for Persistent Storage and Variable Collections**:
-  - **IP Collection Support**: Required for tracking IP-specific data.
+- **IP Collection Support**: Required for tracking IP-specific data.
 
 ## How to Install the Plugin
 
@@ -36,10 +36,10 @@ Please refer to the [OWASP ModSecurity Core Rule Set (CRS) documentation](https:
 ### Installation Steps:
 
 1. **Download the Plugin**:
-   - Obtain the `malcure-intrusion-prevention-plugin.conf` file from the official repository or release package.
+   - Obtain the files from the official repository or release package.
 
-2. **Place the Plugin File**:
-   - Copy the `malcure-intrusion-prevention-plugin.conf` file into your ModSecurity plugins directory.
+2. **Place the Plugin Files**:
+   - Copy the files into your ModSecurity plugins directory.
      - Common locations:
        - For Apache: `/etc/modsecurity.d/`
        - For Nginx with ModSecurity: `/etc/nginx/modsec/`
