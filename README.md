@@ -111,5 +111,4 @@ This plugin is licensed under the [Malcure License](https://malcure.com/about-ma
 ---
 
 **Author**: Malcure  
-**Website**: [https://www.malcure.com/](https://www.malcure.com/)  
-**Support Email**: [support@malcure.com](mailto:shiv@malcure.com)
+**Website**: [https://www.malcure.com/](https://www.malcure.com/)
