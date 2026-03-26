@@ -135,4 +135,4 @@ This plugin is licensed under the [Malcure License](https://malcure.com/about-ma
 ---
 
 **Author**: Malcure  
-**Website**: [https://www.malcure.com/](https://www.malcure.com/)
+**Website**: [https://www.malcure.com/](https://www.malcure.com/?utm_source=github&utm_medium=readme&utm_campaign=malcure-intrusion-prevention-plugin)
