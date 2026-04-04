@@ -1,138 +1,214 @@
-# Malcure's Intrusion Prevention Plugin for ModSecurity
+# Malcure Bot & Brute-Force Shield for ModSecurity
 
 [![License: Malcure](https://img.shields.io/badge/License-Malcure-264059)](https://malcure.com/about-malcure/malcure-license-template/)
 
-**Proactively block malicious IPs to prevent brute-force attacks and exploitation attempts by monitoring error responses in ModSecurity without relying on external tools like Fail2Ban.**
+A suite of two ModSecurity plugins that work together to block bots, brute-force attacks, and exploitation attempts — entirely within the WAF, without Fail2Ban or any external tools.
 
-Malcure's Intrusion Prevention Plugin enhances your web server's security by integrating directly with ModSecurity to detect and block malicious IP addresses exhibiting suspicious behavior. By monitoring 403 and 404 HTTP error responses, the plugin identifies potential brute-force attacks and scanners, blocks them in phase 2 before the request ever reaches the backend, and applies a progressive linear penalty that grows the block window the longer the attacker keeps probing.
+| Plugin | File pair | Rule ID range | What it blocks |
+|---|---|---|---|
+| **Malcure Intrusion Prevention** | `malcure-intrusion-prevention-*.conf` | 9,600,000–9,600,999 | IPs generating excessive 403/404 errors (scanners, probers) |
+| **Malcure WP-Login Protection** | `malcure-wplogin-protection-*.conf` | 9,601,000–9,601,999 | IPs hammering `wp-login.php`, `xmlrpc.php`, or any configured endpoint |
 
-## Features
-
-- **Proactive IP Blocking**: Automatically blocks IPs that exceed a configurable error threshold, entirely within ModSecurity — no Fail2Ban or external tools required.
-- **Phase 2 Early Block**: Once blocked, every subsequent request from the offending IP is denied in phase 2, before it reaches the backend (PHP, upstream, etc.), protecting server resources.
-- **Progressive Linear Penalty**: The block window grows linearly with each probe the attacker sends while already blocked. An active scanner that keeps probing accumulates an ever-increasing required silence period before it is unblocked.
-  - Block window formula: `base_block_duration + (blocked_probes × block_penalty_per_hit)`
-- **Sliding Window**: The block expiry timer resets on every blocked request. The attacker must go completely silent and wait out the full current window to get unblocked.
-- **Error-Based Detection**: Monitors 403 and 404 HTTP response codes to identify malicious activity.
-- **Customizable Settings** — all tunable via `tx.*` variables (override in your site config, not in the plugin file):
-  - `tx.error_limit` — errors before blocking triggers (default: `5`, blocks on the 6th).
-  - `tx.error_counter_expire_period` — seconds to track errors per IP (default: `30`).
-  - `tx.base_block_duration` — minimum block window in seconds (default: `30`).
-  - `tx.block_penalty_per_hit` — seconds added to the block window per probe while blocked (default: `2`).
-- **Private IP Exemption**: Excludes internal/private IP addresses (IPv4 and IPv6) to prevent false positives from legitimate internal services, WordPress cron, local health checks, etc.
-- **Correct Expiry Reset**: Expired state is reset for any IP whose tracking window has elapsed — including IPs that accumulated errors without reaching the block threshold — ensuring stale counters never persist indefinitely.
-- **Detailed Logging**: Comprehensive log messages for every rule action including current penalty, error counter, and expiry timestamp.
-- **Easy Integration**: Follows the standard [OWASP CRS plugin convention](https://coreruleset.org/docs/concepts/plugins/#how-to-install-a-plugin) with `-config.conf` and `-before.conf` files.
-
-## Requirements
-
-- **ModSecurity Web Application Firewall**:
-  - **Version**: ModSecurity 3.x (recommended). Requires libModSecurity with LMDB support for persistent IP collections.
-- **Web Server**:
-  - **Nginx** (recommended).
-  - **Apache HTTP Server**.
-- **Persistent Storage**: The plugin uses the `IP` collection to track state across requests. LMDB (or another persistent backend) must be configured in `modsecurity.conf` via `SecCollectionTimeout` and `SecDataDir` / LMDB equivalent.
-
-## How to Install the Plugin
-
-Please refer to the [OWASP ModSecurity Core Rule Set (CRS) documentation](https://coreruleset.org/docs/concepts/plugins/#how-to-install-a-plugin) for general guidance on installing plugins.
-
-### Installation Steps:
-
-1. **Download the Plugin**:
-   - Clone or download this repository and copy the contents of the `plugins/` directory into your ModSecurity plugins directory.
-
-2. **Place the Plugin Files**:
-   - Copy `malcure-intrusion-prevention-before.conf` and `malcure-intrusion-prevention-config.conf` into your ModSecurity plugins directory. Typical locations:
-     - Nginx + ModSecurity v3: `/etc/nginx/modsec/plugins/`
-     - Apache + ModSecurity: `/etc/modsecurity.d/plugins/`
-
-3. **Include the Plugin in ModSecurity Configuration**:
-   - The plugin must be loaded in the correct order relative to the CRS. Add the following to your ModSecurity configuration file (e.g., `modsecurity.conf` or a dedicated include file), replacing `/path/to/modsec` with your actual ModSecurity directory:
-
-     ```nginx
-     # Plugin configs (loaded before CRS)
-     Include /path/to/modsec/plugins/*-config.conf
-
-     # Plugin before-rules (loaded before CRS rules)
-     Include /path/to/modsec/plugins/*-before.conf
-
-     # CRS rules
-     Include /path/to/modsec/coreruleset/rules/*.conf
-
-     # Plugin after-rules (loaded after CRS rules)
-     Include /path/to/modsec/plugins/*-after.conf
-     ```
-
-4. **Tune Configuration if Necessary**:
-   - The plugin ships with safe defaults. To override any setting, add `SecAction` directives in your site-specific configuration **after** the plugin config is loaded — do not edit the plugin files directly so you can update cleanly:
-
-     ```nginx
-     # Example: tighten to 3 errors, 60s base block, 5s penalty per probe
-     SecAction \
-         "id:9600011,\
-         phase:1,\
-         nolog,\
-         setvar:tx.error_limit=3,\
-         setvar:tx.base_block_duration=60,\
-         setvar:tx.block_penalty_per_hit=5"
-     ```
-
-5. **Restart the Web Server**:
-
-     ```bash
-     # For Nginx
-     sudo systemctl restart nginx
-
-     # For Apache
-     sudo systemctl restart apache2
-     ```
-
-6. **Verify the Installation**:
-   - Check the web server and ModSecurity error logs to confirm the plugin loaded without errors.
-
-## Disabling the Plugin
-
-The plugin is enabled by default when included in the ModSecurity configuration. To disable it without removing the `Include` directives, uncomment the disable rule in `malcure-intrusion-prevention-config.conf`.
-
-After making changes, restart the web server:
-
-```bash
-sudo systemctl restart nginx   # or apache2
-```
-
-## Testing That the Plugin Works
-
-To verify that the plugin is functioning correctly:
-
-1. **Simulate Malicious Activity**:
-   - From a test client (not your production IP), intentionally generate 403 or 404 errors by requesting non-existent resources more than 5 times within 30 seconds.
-
-2. **Observe Blocking Behavior**:
-   - Confirm that your IP address receives 403 responses after exceeding the error threshold, and that subsequent requests are blocked immediately in phase 2.
-
-3. **Check the Logs**:
-   - Review the ModSecurity / nginx error log for entries from rules `9600030` (error counting), `9600040` (block flag set), `9600020` (phase 2 early block), and `9600015` (state reset on expiry).
-
-     ```bash
-     grep "malcure_intrusion_prevention" /var/log/nginx/error.log
-     ```
-
-## Reporting Issues and False Positives
-
-If you encounter any issues, false positives, or have suggestions for improvement, please open a new issue or pull request in the official repository. Include the following details:
-
-1. **ModSecurity Version**: Specify the version of ModSecurity you are using.
-2. **Web Server**: Indicate whether you are using Apache or Nginx.
-3. **Plugin Version**: Confirm the version of the plugin (see the `ver` tag in `malcure-intrusion-prevention-before.conf`).
-4. **Logs**: Provide relevant ModSecurity / web server error log entries that demonstrate the issue.
-5. **Description**: Explain what caused the issue or false positive and any steps to reproduce it.
-
-## License
-
-This plugin is licensed under the [Malcure License](https://malcure.com/about-malcure/malcure-license-template/). See the `LICENSE` file for more details.
+Both plugins share the same architecture: phase 2 early block, sliding expiry window, and a progressive linear penalty that grows the block window on every probe received while an IP is already blocked.
 
 ---
 
-**Author**: Malcure  
-**Website**: [https://www.malcure.com/](https://www.malcure.com/?utm_source=github&utm_medium=readme&utm_campaign=malcure-intrusion-prevention-plugin)
+## Plugin 1 — Malcure Intrusion Prevention (v1.3.0)
+
+Monitors HTTP response codes. When an IP accumulates more than `tx.mip_error_limit` responses with status 403 or 404 within the tracking window, it is blocked. Subsequent requests are denied in phase 2 before the request ever reaches the backend.
+
+### How it works
+
+1. **Count** (phase 3, rule 9600030) — increments `ip.mip_error_counter` on every 403 or 404 response; refreshes the tracking window expiry.
+2. **Flag** (phase 3, rule 9600040) — sets `ip.mip_block_ip=1` when `ip.mip_error_counter > tx.mip_error_limit`.
+3. **Deny (first trip)** (phase 3, rule 9600050) — blocks the request that just crossed the threshold.
+4. **Deny (all subsequent)** (phase 2, rule 9600020) — blocks every future request from that IP before the backend sees it; refreshes and extends the block expiry.
+5. **Penalty** (phase 2, rule 9600016) — adds `tx.mip_block_penalty_per_hit` to `ip.mip_block_penalty` on every blocked probe.
+6. **Expire** (phase 2, rule 9600015) — clears all state when the tracking/block window has genuinely elapsed.
+
+### Tunable variables
+
+Override any of these in your site config **before** the plugin loads. Do not edit the plugin files directly.
+
+| Variable | Default | Description |
+|---|---|---|
+| `tx.mip_error_limit` | `5` | Errors before blocking triggers (blocks on the 6th) |
+| `tx.mip_ec_expire_period` | `30` | Seconds to track errors per IP |
+| `tx.mip_base_block_duration` | `30` | Minimum block window in seconds |
+| `tx.mip_block_penalty_per_hit` | `2` | Seconds added to the block window per probe while blocked |
+
+Block window formula: `tx.mip_base_block_duration + (blocked_probes × tx.mip_block_penalty_per_hit)`
+
+### Configuration example
+
+```nginx
+# Tighten to 3 errors, 60s base block, 10s penalty per probe
+SecAction \
+    "id:9600011,\
+    phase:1,\
+    nolog,\
+    pass,\
+    setvar:tx.mip_error_limit=3,\
+    setvar:tx.mip_ec_expire_period=60,\
+    setvar:tx.mip_base_block_duration=60,\
+    setvar:tx.mip_block_penalty_per_hit=10"
+```
+
+---
+
+## Plugin 2 — Malcure WP-Login Protection (v1.1.0)
+
+Monitors requests to sensitive WordPress endpoints. When an IP exceeds `tx.wpl_request_limit` requests to any protected endpoint within the tracking window, all traffic from that IP is blocked — regardless of HTTP method (GET, POST, XMLRPC, etc.).
+
+### How it works
+
+1. **Count** (phase 2, rule 9601030) — increments `ip.wpl_counter` on every request matching `tx.wpl_endpoint_pattern`; refreshes the tracking window expiry.
+2. **Flag** (phase 2, rule 9601040) — sets `ip.wpl_block_ip=1` when `ip.wpl_counter > tx.wpl_request_limit`; overwrites expiry with the full block duration.
+3. **Deny (first trip)** (phase 2, rule 9601050) — blocks the request that just crossed the threshold.
+4. **Deny (all subsequent)** (phase 2, rule 9601020) — blocks every future request from that IP before the backend sees it; refreshes and extends the block expiry.
+5. **Penalty** (phase 2, rule 9601016) — adds `tx.wpl_block_penalty_per_hit` to `ip.wpl_block_penalty` on every blocked probe.
+6. **Expire** (phase 2, rule 9601015) — clears all state when the tracking/block window has genuinely elapsed.
+
+### Tunable variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `tx.wpl_request_limit` | `5` | Requests to protected endpoints allowed per IP before blocking |
+| `tx.wpl_window` | `30` | Tracking window in seconds; resets on every matching request |
+| `tx.wpl_base_block_duration` | `30` | Minimum block window in seconds |
+| `tx.wpl_block_penalty_per_hit` | `2` | Seconds added to the block window per probe while blocked |
+| `tx.wpl_endpoint_pattern` | `(?:wp-login\|xmlrpc)\.php$` | Regex matched against `REQUEST_FILENAME` |
+
+Block window formula: `tx.wpl_base_block_duration + (blocked_probes × tx.wpl_block_penalty_per_hit)`
+
+### Configuration example
+
+```nginx
+# 3 attempts, 24-hour base block, 5-minute penalty per probe, also protect wp-cron.php
+SecAction \
+    "id:9601011,\
+    phase:1,\
+    nolog,\
+    pass,\
+    setvar:tx.wpl_request_limit=3,\
+    setvar:tx.wpl_window=30,\
+    setvar:tx.wpl_base_block_duration=86400,\
+    setvar:tx.wpl_block_penalty_per_hit=300,\
+    setvar:'tx.wpl_endpoint_pattern=(?:wp-login|xmlrpc|wp-cron)\.php$'"
+```
+
+---
+
+## Requirements
+
+- **libModSecurity 3.x** compiled with `--with-lmdb` for persistent IP collection storage across requests.
+- **OWASP CRS** installed and configured (plugins load around CRS using the standard `-before.conf` / `-config.conf` convention).
+- `ENABLE_DEFAULT_COLLECTIONS` set to `1` in `crs-setup.conf` (rule 900130).
+- **Nginx** or **Apache HTTP Server**.
+
+---
+
+## Installation
+
+Follow the [OWASP CRS plugin installation guide](https://coreruleset.org/docs/concepts/plugins/#how-to-install-a-plugin) for general context.
+
+### 1. Copy the plugin files
+
+```bash
+cp plugins/malcure-intrusion-prevention-before.conf  /path/to/modsec/plugins/
+cp plugins/malcure-intrusion-prevention-config.conf  /path/to/modsec/plugins/
+cp plugins/malcure-wplogin-protection-before.conf    /path/to/modsec/plugins/
+cp plugins/malcure-wplogin-protection-config.conf    /path/to/modsec/plugins/
+```
+
+Typical plugin directory locations:
+- Nginx + ModSecurity v3: `/etc/nginx/modsec/plugins/`
+- Apache + ModSecurity: `/etc/modsecurity.d/plugins/`
+
+### 2. Verify your ModSecurity include order
+
+The plugin files must be loaded in the correct position relative to CRS:
+
+```nginx
+Include /path/to/modsec/plugins/*-config.conf
+Include /path/to/modsec/plugins/*-before.conf
+Include /path/to/modsec/coreruleset/rules/*.conf
+Include /path/to/modsec/plugins/*-after.conf
+```
+
+### 3. Tune (optional)
+
+Add `SecAction` overrides in your site vhost config or a dedicated setup file loaded **before** the plugin config. See the configuration examples above.
+
+### 4. Restart the web server
+
+```bash
+sudo systemctl restart nginx    # or apache2
+```
+
+### 5. Verify
+
+Check the error log to confirm both plugins loaded without errors:
+
+```bash
+grep -E "malcure_intrusion_prevention|malcure_wplogin_protection" /var/log/nginx/error.log
+```
+
+---
+
+## Disabling a plugin
+
+To disable either plugin without removing its `Include` directives, uncomment the `SecRule` disable block in the relevant `-config.conf` file, then restart the web server.
+
+---
+
+## Private IP exemption
+
+Both plugins automatically exempt all private and loopback addresses from tracking, so WordPress Cron, health checks, and local services are never blocked:
+
+- IPv4: `127.x`, `10.x`, `192.168.x`, `172.16–31.x`
+- IPv6: `::1`, `fe80::`, `fd::`
+
+---
+
+## Testing
+
+### Intrusion Prevention
+
+From a non-production IP, request a non-existent path more than 5 times within 30 seconds to trigger 404 errors. Confirm you receive a 403 after the threshold and that subsequent requests are also blocked immediately. Check the logs:
+
+```bash
+grep "malcure_intrusion_prevention" /var/log/nginx/error.log
+# Key rule events: 9600030 (COUNT), 9600040 (BLOCK), 9600020 (DENY), 9600015 (EXPIRE)
+```
+
+### WP-Login Protection
+
+From a non-production IP, send more than 5 requests to `wp-login.php` within 30 seconds. Confirm blocking triggers. Check the logs:
+
+```bash
+grep "malcure_wplogin_protection" /var/log/nginx/error.log
+# Key rule events: 9601030 (COUNT), 9601040 (BLOCK), 9601020 (DENY), 9601015 (EXPIRE)
+```
+
+---
+
+## Reporting Issues
+
+Open a GitHub issue and include:
+
+1. **ModSecurity version** and whether it was compiled with `--with-lmdb`.
+2. **Web server** (Nginx or Apache) and version.
+3. **Plugin version** (see the `ver` tag in the relevant `-before.conf` file).
+4. **Relevant log lines** from the ModSecurity / web server error log.
+5. **Description** of the issue and steps to reproduce.
+
+---
+
+## License
+
+Licensed under the [Malcure License](MALCURE-LICENSE.md) — free to use, modify, and distribute. See the license file for the full terms.
+
+---
+
+**Author**: [Malcure](https://malcure.com/?utm_source=github&utm_medium=readme&utm_campaign=malcure-bot-brute-force-shield)
